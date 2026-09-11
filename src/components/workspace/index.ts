@@ -1,0 +1,1 @@
+export { ApplicationsView } from "./ApplicationsView";
