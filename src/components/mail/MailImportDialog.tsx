@@ -258,7 +258,6 @@ export function MailImportDialog({
         nextDraft = result.draft;
         if (result.usage) {
           setPendingUsage((current) => [...current, result.usage!]);
-          onCommit(appendUsage(data, result.usage));
         }
       }
       if (run !== recognitionRun.current) return;

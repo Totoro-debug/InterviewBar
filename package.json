@@ -1,6 +1,6 @@
 {
   "name": "interviewbar-windows",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Windows 10/11 秋招面试日程与投递面板",
   "main": "dist-electron/electron/main.js",

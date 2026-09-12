@@ -28,6 +28,7 @@ import {
 } from "../../domain/events";
 import type {
   AppData,
+  ApplicationRecord,
   ApplicationSheet,
   EventKind,
   EventStatus,
@@ -47,10 +48,20 @@ interface ApplicationsViewProps {
   onNewEvent: () => void;
 }
 
-interface LocalTableData {
+export interface LocalTableData {
   title: string;
   columns: string[];
   rows: Array<{ id: string; cells: string[] }>;
+  labelColumn: number;
+}
+
+type ApplicationColumnKey = "company" | "role" | "status" | "updatedAt" | "notes" | "source";
+
+interface ApplicationColumnDefinition {
+  key: ApplicationColumnKey;
+  label: string;
+  aliases: readonly string[];
+  value: (application: ApplicationRecord) => string;
 }
 
 interface SheetUrlResult {
@@ -85,6 +96,49 @@ const statusOptions: Array<{ value: "all" | EventStatus; label: string }> = [
   { value: "rejected", label: EVENT_STATUS_LABELS.rejected },
 ];
 
+function normalizeApplicationColumn(value: string): string {
+  return value.trim().toLocaleLowerCase("en-US").replace(/[\s_-]+/gu, "");
+}
+
+const applicationColumnDefinitions: readonly ApplicationColumnDefinition[] = [
+  {
+    key: "company",
+    label: "公司",
+    aliases: ["公司", "公司名称", "企业", "企业名称", "company"],
+    value: (application) => application.company,
+  },
+  {
+    key: "role",
+    label: "岗位",
+    aliases: ["岗位", "岗位名称", "应聘岗位", "职位", "职位名称", "role", "position"],
+    value: (application) => application.role,
+  },
+  {
+    key: "status",
+    label: "状态",
+    aliases: ["状态", "投递状态", "投递进度", "进度", "status"],
+    value: (application) => EVENT_STATUS_LABELS[application.status],
+  },
+  {
+    key: "updatedAt",
+    label: "更新时间",
+    aliases: ["更新时间", "更新日期", "最后更新", "最近更新", "updatedat"],
+    value: (application) => formatTimestamp(application.updatedAt),
+  },
+  {
+    key: "notes",
+    label: "备注",
+    aliases: ["备注", "说明", "note", "notes", "remark", "remarks"],
+    value: (application) => application.notes,
+  },
+  {
+    key: "source",
+    label: "记录来源",
+    aliases: ["记录来源"],
+    value: () => "邮件识别",
+  },
+];
+
 function workspaceBridge(): WorkspaceBridge | undefined {
   if (typeof window === "undefined") return undefined;
   return (window as Window & { interviewBar?: WorkspaceBridge }).interviewBar;
@@ -104,16 +158,49 @@ function fallbackApplicationTable(data: AppData): LocalTableData {
         application.notes,
       ],
     })),
+    labelColumn: 0,
   };
 }
 
-function applicationTable(data: AppData): LocalTableData {
+export function buildApplicationTable(data: AppData): LocalTableData {
   const sheet = data.applicationSheet;
   if (!sheet) return fallbackApplicationTable(data);
+
+  const columns = [...sheet.columns];
+  const mappedColumns = applicationColumnDefinitions.map((definition) => {
+    const aliases = definition.aliases.map(normalizeApplicationColumn);
+    let index = columns.findIndex((column) => aliases.includes(normalizeApplicationColumn(column)));
+    if (index < 0 && data.applications.length > 0) {
+      columns.push(definition.label);
+      index = columns.length - 1;
+    }
+    return { definition, index };
+  });
+  const sourceColumn = mappedColumns.find(({ definition }) => definition.key === "source")?.index ?? -1;
+  const labelColumn = mappedColumns.find(({ definition }) => definition.key === "company")?.index ?? 0;
+  const sheetRows = sheet.rows.map((cells, index) => {
+    const projected = [
+      ...cells,
+      ...Array<string>(Math.max(0, columns.length - cells.length)).fill(""),
+    ];
+    if (data.applications.length > 0 && sourceColumn >= 0 && !projected[sourceColumn]?.trim()) {
+      projected[sourceColumn] = "导入表格";
+    }
+    return { id: `sheet-${index}`, cells: projected };
+  });
+  const applicationRows = data.applications.map((application) => {
+    const cells = Array<string>(columns.length).fill("");
+    for (const { definition, index } of mappedColumns) {
+      if (index >= 0) cells[index] = definition.value(application);
+    }
+    return { id: `application-${application.id}`, cells };
+  });
+
   return {
     title: sheet.title || "本地投递表",
-    columns: sheet.columns,
-    rows: sheet.rows.map((cells, index) => ({ id: `sheet-${index}`, cells })),
+    columns,
+    rows: [...sheetRows, ...applicationRows],
+    labelColumn,
   };
 }
 
@@ -229,7 +316,7 @@ export function ApplicationsView({ data, onCommit, onEdit, onNewEvent }: Applica
     setSheetUrl(data.settings.feishuSheetUrl);
   }, [data.settings.feishuSheetUrl]);
 
-  const localTable = useMemo(() => applicationTable(data), [data]);
+  const localTable = useMemo(() => buildApplicationTable(data), [data]);
   const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
   const localRows = useMemo(() => {
     const direction = localSort.direction === "ascending" ? 1 : -1;
@@ -538,7 +625,7 @@ export function ApplicationsView({ data, onCommit, onEdit, onNewEvent }: Applica
                     <div className="workspace-detail__heading">
                       <FileSpreadsheet size={17} />
                       <div>
-                        <strong>{selectedLocal.cells[0] || "未命名记录"}</strong>
+                        <strong>{selectedLocal.cells[localTable.labelColumn] || "未命名记录"}</strong>
                         <span>{localTable.title}</span>
                       </div>
                     </div>
