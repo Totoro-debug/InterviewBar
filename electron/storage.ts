@@ -206,7 +206,7 @@ export class AppDataStore {
         );
         try {
           await copyFile(this.file, backupTemporary);
-          const backupHandle = await open(backupTemporary, "r");
+          const backupHandle = await open(backupTemporary, "r+");
           try {
             await backupHandle.sync();
           } finally {
