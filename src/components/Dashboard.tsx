@@ -21,7 +21,6 @@ import {
   describeEventTime,
   eventInstant,
   eventKindLabel,
-  getNextEvent,
   isEventOverdue,
 } from '../domain/events';
 import { buildWeeklyStats } from '../domain/stats';
@@ -70,22 +69,21 @@ export function Dashboard({
   onEdit,
   onStatus,
 }: DashboardProps) {
-  const next = getNextEvent(data.events, now);
   const pending = data.events.filter((event) => event.status === 'pending');
   const upcomingAll = pending
-    .filter((event) => {
-      const instant = eventInstant(event);
-      return instant && instant >= now;
-    })
-    .sort((left, right) => eventInstant(left)!.getTime() - eventInstant(right)!.getTime());
-  const upcoming = upcomingAll.slice(0, 5);
+    .map((event) => ({ event, instant: eventInstant(event) }))
+    .filter(({ instant }) => instant !== null && instant.getTime() >= now.getTime())
+    .sort((left, right) => left.instant!.getTime() - right.instant!.getTime());
+  const nextEntry = upcomingAll[0];
+  const next = nextEntry?.event ?? null;
+  const upcoming = upcomingAll.slice(0, 5).map(({ event }) => event);
   const overdue = pending.filter((event) => isEventOverdue(event, now)).length;
   const unscheduled = pending.filter((event) => event.timing !== 'exact').length;
   const completed = data.events.filter((event) => event.status === 'completed').length;
   const currentWeek = buildWeeklyStats(data.events, { now, range: 8, metric: 'completed' }).at(-1);
   const weeklyMax = Math.max(1, ...kindMeta.map(({ kind }) => currentWeek?.counts[kind] ?? 0));
   const nextTime = next ? describeEventTime(next, now) : null;
-  const nextInstant = next ? eventInstant(next) : null;
+  const nextInstant = nextEntry?.instant ?? null;
 
   return (
     <div className="page dashboard-page">

@@ -107,6 +107,15 @@ async function waitForStoredEvents(file, companies) {
         ? `Electron persistence smoke check failed: renderer reported 保存失败. ${saveMessage || 'No error detail.'}`
         : 'Electron persistence smoke check failed: the new event was not written.');
     }
+
+    await window.getByRole('button', { name: '设置', exact: true }).click();
+    await window.getByRole('heading', { name: '设置', exact: true }).waitFor();
+    await window.getByRole('button', { name: '配置与用量' }).click();
+    const aiSettings = window.getByRole('dialog', { name: 'AI 服务与用量' });
+    await aiSettings.waitFor();
+    await aiSettings.getByText('当前 API 地址尚未保存密钥').waitFor();
+    await aiSettings.getByRole('button', { name: '关闭 AI 设置' }).click();
+
     if (errors.length) throw new Error(`Electron renderer errors: ${errors.join('\n')}`);
     process.stdout.write(`${executablePath ? 'Packaged' : 'Electron'} smoke check passed. Isolated profile: ${profileRoot}\n`);
   } finally {

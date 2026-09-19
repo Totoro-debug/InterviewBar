@@ -8,18 +8,17 @@ import {
 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Dashboard } from './components/Dashboard';
-import { EventEditor } from './components/EventEditor';
-import { ScheduleView } from './components/ScheduleView';
-import { SettingsView } from './components/SettingsView';
 import { Shell, type PageId } from './components/Shell';
-import { exportEventsCsv } from './domain/csv';
 import type { AppData, EventStatus, InterviewEvent } from './domain/types';
 import { useAppData } from './app/useAppData';
 
 const ApplicationsView = lazy(() => import('./components/workspace').then((module) => ({ default: module.ApplicationsView })));
+const EventEditor = lazy(() => import('./components/EventEditor').then((module) => ({ default: module.EventEditor })));
 const JourneyView = lazy(() => import('./components/JourneyView').then((module) => ({ default: module.JourneyView })));
 const MailImportDialog = lazy(() => import('./components/mail').then((module) => ({ default: module.MailImportDialog })));
 const AiSettingsDialog = lazy(() => import('./components/mail').then((module) => ({ default: module.AiSettingsDialog })));
+const ScheduleView = lazy(() => import('./components/ScheduleView').then((module) => ({ default: module.ScheduleView })));
+const SettingsView = lazy(() => import('./components/SettingsView').then((module) => ({ default: module.SettingsView })));
 
 interface ToastMessage {
   id: number;
@@ -154,6 +153,7 @@ export default function App() {
 
   const exportCsv = useCallback(async () => {
     try {
+      const { exportEventsCsv } = await import('./domain/csv');
       const content = exportEventsCsv(data.events, { applications: data.applications });
       const name = `秋招日程-${new Date().toISOString().slice(0, 10)}.csv`;
       if (window.interviewBar) {
@@ -241,14 +241,18 @@ export default function App() {
         </Suspense>
       </Shell>
 
-      <EventEditor
-        open={editorOpen}
-        event={editingEvent}
-        defaultReminder={data.settings.defaultReminderMinutes}
-        onClose={() => setEditorOpen(false)}
-        onSave={saveEvent}
-        onDelete={(event) => setDeleteCandidate(event)}
-      />
+      {editorOpen && (
+        <Suspense fallback={null}>
+          <EventEditor
+            open
+            event={editingEvent}
+            defaultReminder={data.settings.defaultReminderMinutes}
+            onClose={() => setEditorOpen(false)}
+            onSave={saveEvent}
+            onDelete={(event) => setDeleteCandidate(event)}
+          />
+        </Suspense>
+      )}
       {mailOpen && (
         <Suspense fallback={null}>
           <MailImportDialog

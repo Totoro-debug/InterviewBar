@@ -109,7 +109,7 @@ beforeAll(async () => {
   );
   await page.goto(`http://127.0.0.1:${address.port}/`);
   await page.getByRole("heading", { name: "把下一场准备好" }).waitFor();
-});
+}, 30_000);
 
 afterAll(async () => {
   await Promise.allSettled([

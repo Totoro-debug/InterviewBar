@@ -23,9 +23,7 @@ import type {
   NavigationPage,
   NavigationTarget,
 } from "../src/platform/desktop-api";
-import { AIService } from "./ai";
 import { IPC } from "./channels";
-import { CredentialStore } from "./credentials";
 import { validateExternalUrl } from "./model-url";
 import { NotificationScheduler } from "./notifications";
 import { AppDataStore, atomicWriteText, validateAppData } from "./storage";
@@ -58,8 +56,12 @@ app.setName(APP_NAME);
 app.setAppUserModelId(APP_ID);
 
 const dataStore = new AppDataStore(userDataDirectory);
-const credentialStore = new CredentialStore(userDataDirectory);
-const aiService = new AIService(credentialStore, dataStore);
+let aiServicesPromise: Promise<{
+  credentialStore: import("./credentials").CredentialStore;
+  aiService: import("./ai").AIService;
+}> | null = null;
+let startupDataLoad: Promise<AppData> | null = null;
+let startupServicesInitialized = false;
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -71,6 +73,49 @@ let rendererReady = false;
 let currentNavigation: NavigationTarget = { page: "home" };
 const launchHidden = process.argv.includes("--hidden");
 let showWhenReady = !launchHidden;
+
+function getAiServices() {
+  if (!aiServicesPromise) {
+    aiServicesPromise = Promise.all([import("./credentials.js"), import("./ai.js")])
+      .then(([{ CredentialStore }, { AIService }]) => {
+        const credentialStore = new CredentialStore(userDataDirectory);
+        return {
+          credentialStore,
+          aiService: new AIService(credentialStore, dataStore),
+        };
+      })
+      .catch((error: unknown) => {
+        aiServicesPromise = null;
+        throw error;
+      });
+  }
+  return aiServicesPromise;
+}
+
+function initializeStartupServices(data: AppData): void {
+  if (startupServicesInitialized) return;
+  startupServicesInitialized = true;
+  setImmediate(() => {
+    try {
+      notificationScheduler?.reschedule(data);
+    } catch (error) {
+      console.warn("Failed to reschedule notifications:", error);
+    }
+    try {
+      updateTrayTooltip(data);
+    } catch (error) {
+      console.warn("Failed to update tray tooltip:", error);
+    }
+  });
+}
+
+async function loadDataForRenderer(): Promise<AppData> {
+  const initialLoad = startupDataLoad;
+  if (initialLoad) startupDataLoad = null;
+  const data = await (initialLoad ?? dataStore.load());
+  initializeStartupServices(data);
+  return data;
+}
 
 function requestQuit(): void {
   if (quitRequest) return;
@@ -430,7 +475,7 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.dataLoad, async (event) => {
     assertTrustedSender(event);
-    return dataStore.load();
+    return loadDataForRenderer();
   });
   ipcMain.handle(IPC.dataSave, async (event, data: unknown) => {
     assertTrustedSender(event);
@@ -481,15 +526,18 @@ function registerIpc(): void {
   ipcMain.handle(IPC.aiHasCredential, async (event, url: unknown) => {
     assertTrustedSender(event);
     if (typeof url !== "string") throw new Error("模型地址无效。");
+    const { credentialStore } = await getAiServices();
     return credentialStore.has(url);
   });
   ipcMain.handle(IPC.aiSaveCredential, async (event, url: unknown, key: unknown) => {
     assertTrustedSender(event);
     if (typeof url !== "string" || typeof key !== "string") throw new Error("凭据参数无效。");
+    const { credentialStore } = await getAiServices();
     await credentialStore.save(url, key);
   });
   ipcMain.handle(IPC.aiRecognize, async (event, request: AIRecognizeRequest) => {
     assertTrustedSender(event);
+    const { aiService } = await getAiServices();
     return aiService.recognize(request);
   });
 
@@ -521,7 +569,12 @@ if (!hasSingleInstanceLock) {
   });
   app.on("activate", () => navigate({ page: "home" }));
 
-  void app.whenReady().then(async () => {
+  void app.whenReady().then(() => {
+    const initialDataLoad = dataStore.load();
+    startupDataLoad = initialDataLoad;
+    void initialDataLoad
+      .then(initializeStartupServices)
+      .catch((error) => console.warn("Failed to load app data at startup:", error));
     mainWindow = createMainWindow();
     tray = createTray();
     notificationScheduler = new NotificationScheduler(navigate);
@@ -545,12 +598,5 @@ if (!hasSingleInstanceLock) {
         .then((data) => notificationScheduler?.reschedule(data))
         .catch((error) => console.warn("Failed to restore notifications:", error));
     });
-    try {
-      const data = await dataStore.load();
-      notificationScheduler.reschedule(data);
-      updateTrayTooltip(data);
-    } catch (error) {
-      console.warn("Failed to load app data at startup:", error);
-    }
   });
 }
